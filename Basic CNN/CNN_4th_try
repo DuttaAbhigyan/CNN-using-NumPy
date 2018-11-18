@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jun 24 13:44:49 2018
+
+@author: abhigyan
+"""
+
+"""This is a rigid implementation of CNN with very limited functionalities and very less customisations and modularity.
+   This is not an optimised implementation"""
+
+import numpy as np
+
+
+#Method to get output dimensions after applying a single layer to the input
+def getConvolutionDimensions(dataset, filters, padding, stride):
+    inputDimensions = dataset[0].shape
+    filterDimensions = filters[0].shape
+    outputDimensions = (filters.shape[0], (inputDimensions[1] + 2*padding - filterDimensions[1])//stride + 1, (inputDimensions[2] + 2*padding - filterDimensions[2])//stride + 1)
+    return outputDimensions
+
+
+#Method to carry out the convolution between the input and the filters
+    
+def convolution(dataset, filters, padding, stride, mode):
+    outputDimensions = getConvolutionDimensions(dataset, filters, padding, stride)
+    outputDatasetDimensions = (len(dataset), outputDimensions[0], outputDimensions[1], outputDimensions[2])
+    filterDimensions = filters[0].shape
+    convolutionMatrix = np.array([])
+    if(mode == 'Valid'):
+        for i in  dataset:
+            for j in range(0, outputDimensions[1]):
+                for k in range(0, outputDimensions[2]):
+                    multipliedMatrix =  filters * i[:, j:j+filterDimensions[1], k:k+filterDimensions[2]]
+                    effectiveValue = np.sum(np.sum(np.sum(multipliedMatrix, axis =1), axis = 1), axis = 1)
+                    convolutionMatrix = np.append(convolutionMatrix, effectiveValue)
+        reshapedConvolutionMatrix = np.array([])
+        convolutionMatrix = np.reshape(convolutionMatrix, (len(dataset), -1))      #change
+        for i in range(0, len(dataset)):
+            temp = convolutionMatrix[i, :]
+            temp = temp.reshape((-1, filters.shape[0]))
+            temp = temp.T
+            temp = temp.reshape((filters.shape[0], outputDimensions[1], outputDimensions[2]))
+            reshapedConvolutionMatrix = np.append(reshapedConvolutionMatrix, temp)
+        reshapedConvolutionMatrix = reshapedConvolutionMatrix.reshape(outputDatasetDimensions)
+        return reshapedConvolutionMatrix, outputDatasetDimensions
+
+#Method to find the derivative WRT to a given layer of filters
+def reverseConvolutionBackpropagation(previousLayerInputMatrix, layerOutput, 
+                                      nextLayerGradient, filters, padding, stride, mode):
+    filterGradient = np.zeros(filters.shape)
+    biasGradient = np.zeros((1, filters.shape[0]))
+    reluFilter = np.copy(layerOutput)                   
+    reluFilter[reluFilter > 0] = 1
+    nextLayerGradient = nextLayerGradient * reluFilter
+    if(mode == 'Valid'):
+        for i in range(0, len(previousLayerInputMatrix)):
+            for j in range(0, layerOutput.shape[2]):
+                for k in range(0, layerOutput.shape[3]):
+                    filterGradient = filterGradient + np.resize(previousLayerInputMatrix[i, :, j:j+filters.shape[2], k:k+filters.shape[3]], (filters.shape)) * nextLayerGradient[i, :, j, k].reshape(filters.shape[0], 1, 1, 1)
+                    biasGradient = biasGradient + 1 * nextLayerGradient[i, :, j, k]
+        filterGradient = filterGradient / len(previousLayerInputMatrix)
+        biasGradient = biasGradient / len(previousLayerInputMatrix)
+    return filterGradient, biasGradient
+                
+    
+def sigmoid(inputMatrix):
+    return np.power(np.exp(-inputMatrix) + 1, -1)
+
+
+def calculateCrossEntropy(target, hypothesis):
+    cost = -((target * np.log(hypothesis)) + ((1 - target) * np.log(1 - hypothesis))) / len(target)
+    return cost
+        
+
+#Filter object
+class filters(object):
+    
+    def __init__(self, dimensions):
+        self.dimensions = dimensions
+        self.fil = np.random.random(self.dimensions)
+        #self.fil[1][0][0][0] = self.fil[1][0][0][0] - 0.000001
+        self.bias = np.random.random((1, dimensions[0], 1, 1))   #change
+
+#Getter methods        
+    def __repr__(self):
+        return str(self.fil)
+        
+    def getDimensions(self):
+        return self.dimensions
+    
+    def getFilter(self):
+        return self.fil
+    
+    def getBias(self):
+        return self.bias
+
+#Update Filter Weights    
+    def updateFilter(self, deltaFilter, deltaBias):
+        self.fil = self.fil - deltaFilter
+        self.bias = self.bias - deltaBias
+         
+       
+
+#Layer object
+class layer(object):
+    
+    #Initializer methods
+    #Dataset entered in (NCHW) format
+    def __init__(self, activationFunction, padding, stride, dataset, filterDimensions,
+                 outputChannels):
+        self.activationFunction = activationFunction
+        self.padding = padding
+        self.stride = stride
+        self.dataset = dataset
+        self.inputDimensions = dataset.shape
+        self.inputChannels = dataset.shape[1]
+        self.filterDimensions = filterDimensions   #Height and Width of a filter
+        self.outputChannels = outputChannels       #Number of filters
+    
+    def updateDataset(self, newDataset):
+        self.dataset = newDataset
+        
+    def initializeFilter(self):
+        self.filterDimensions = (self.outputChannels, self.inputChannels, 
+                                 self.filterDimensions[0], self.filterDimensions[1])
+        self.filters = filters(self.filterDimensions)
+    
+#End of initializer methods
+
+# Getter Methods
+               
+    def getLayerInfo(self):
+        return self.padding, self.stride
+    
+    def getLayerInput(self):
+        return self.dataset
+    
+    def getLayerFilterInfo(self):
+        return self.filterDimensions
+    
+    def getLayerFilters(self):
+        return self.filters
+    
+    def getFilteredImage(self):
+        return self.filteredImage
+    
+    def getLayerOutput(self):
+        return self.output
+    
+    def getFilterGrdaient(self):
+        return self.filterGradient
+    
+#End of getter methods
+       
+#Methods to perform convolution on the image
+        
+    def applyFilters(self):
+        convolutedImageWithoutBias, outputDimensions = convolution(self.dataset, 
+                                                                   self.filters.getFilter(), 
+                                                                   padding = 0, 
+                                                                   stride = self.stride, 
+                                                                   mode = 'Valid')
+        convolutedImage = convolutedImageWithoutBias + self.filters.getBias()
+        self.outputDimensions = outputDimensions
+        self.filteredImage = convolutedImage
+        
+        
+    def applyActivation(self):
+        if(self.activationFunction == 'relu'):
+            self.output = np.maximum(self.filteredImage, 0)
+        if(self.activationFunction == 'sigmoid'):
+            self.output = sigmoid(self.filteredImage)
+
+#End
+            
+
+#Applying backpropagation to the CNN, updating weights and finding downstream gradients
+                        
+    def applyFilterBackpropagation(self, gradientWRToutput):
+        self.gradientWRToutput = gradientWRToutput
+        self.biasGradient = np.array([])
+        if(self.activationFunction == 'relu'):
+            self.filterGradient = np.array([])
+            filterGradient_n, biasGradient_n = reverseConvolutionBackpropagation(self.dataset,    #Finding gradients for the filters
+                                                                                 self.output, 
+                                                                                 gradientWRToutput, 
+                                                                                 self.filters.getFilter(), 
+                                                                                 padding = 0, 
+                                                                                 stride = self.stride, 
+                                                                                 mode = 'Valid')
+            self.filterGradient = np.append(self.filterGradient, filterGradient_n)
+            self.biasGradient = np.append(self.biasGradient, biasGradient_n)
+            
+        self.filterGradient = np.reshape(self.filterGradient, (self.filterDimensions))
+        self.biasGradient = np.reshape(self.biasGradient, (1, self.filterDimensions[0], 1, 1))
+        
+    def applyLearningRateAndUpdate(self, alpha):
+        self.filters.updateFilter(alpha * self.filterGradient, alpha * self.biasGradient)
+            
+    def getGradientForPreviousLayer(self):                          #Calculating downstream gradients
+        self.gradientWRTinput = np.zeros(self.inputDimensions)
+        for i in range(0, len(self.dataset)):
+            for j in range(0, self.outputDimensions[2]):
+                for k in range(0, self.outputDimensions[3]):
+                    self.gradientWRTinput[None, i, :, j:j+self.filterDimensions[2], 
+                                          k:k+self.filterDimensions[3]] += np.sum(self.filters.getFilter() * self.gradientWRToutput[i, :, j, k, None, None, None], 
+                                          axis = 0, keepdims = True)
+        #self.gradientWRTinput = self.gradientWRTinput 
+        return self.gradientWRTinput
+
+#End
+
+#Final layer which is 2 fully connected layers and nodes is equal to the output from the previous layers
+class finalLayer(object):
+    
+    def __init__(self, dataset):
+        self.initialDimensions = dataset.shape
+        self.dataset = dataset.flatten()
+        self.dataset = np.reshape(self.dataset, (-1, self.initialDimensions[0]))           
+        self.dimensions = self.dataset.shape
+        self.weights1 = np.random.random((self.dimensions[0], self.dimensions[0])) 
+        self.biasWeight1 = np.random.random((self.dimensions[0], 1))
+        self.weights2 = np.random.random((self.dimensions[0], 1))
+        self.biasWeight2 = np.random.random()
+      
+    def updateDataset(self, newDataset):
+        self.dataset = newDataset.flatten()
+        self.dataset = np.reshape(self.dataset, (-1, self.initialDimensions[0]))
+        
+    def forwardPropagation(self):
+        self.z1 = np.dot(self.weights1.T, self.dataset) + self.biasWeight1
+        self.a1 = sigmoid(self.z1)
+        self.z2 = np.dot(self.weights2.T, self.a1) + self.biasWeight2
+        self.hypothesis = sigmoid(self.z2)
+        
+    def getHypothesis(self):
+        return self.hypothesis      
+    
+    def calculateErrors(self, actualResult):
+        self.actualResult = actualResult
+        self.error = self.hypothesis - self.actualResult
+        return self.error
+    
+    def getLoss(self):
+        loss = np.sum(calculateCrossEntropy(self.actualResult, self.hypothesis)) / self.initialDimensions[0]   
+        return loss
+        
+    def finalLayerBackpropagation(self):
+        self.gradient2 = np.sum((self.error * self.a1), axis = 1, keepdims = True) / self.initialDimensions[0]
+        self.biasGradient2 = np.sum(self.error) / self.initialDimensions[0]
+        self.gradient1 = np.dot((self.error * self.weights2) * (self.a1 * (1 - self.a1)), self.dataset.T).T / self.initialDimensions[0] 
+        self.biasGradient1 = np.sum((self.error * self.weights2) * (self.a1 * (1 - self.a1)), axis = 1, keepdims = True) / self.initialDimensions[0]
+    
+    def updateWeights(self, alpha):
+        self.weights2 = self.weights2 - alpha * self.gradient2
+        self.biasWeight2 = self.biasWeight2 - alpha * self.biasGradient2
+        self.weights1 = self.weights1 - alpha * self.gradient1
+        self.biasWeight1 = self.biasWeight1 - alpha * self.biasGradient1
+
+    def getGradientForPreviousLayer(self):
+       self.gradientWRTinput = np.dot(self.weights1, (self.error * self.weights2) * (self.a1 * (1 - self.a1))) / self.initialDimensions[1]
+       self.gradientWRTinput = np.reshape(self.gradientWRTinput, self.initialDimensions)
+       return self.gradientWRTinput
+   
+    
+    
+#Creates the CNN and returns trained layers
+def create_CNN(self, trainDataset, targets, numberOfLayers, filterSize, outputChannels, 
+               epochs, learningRate):
+    layers = []
+    out = trainDataset
+    for i in range(0 ,numberOfLayers):
+        l = layer(0, 1, out, filterSize, outputChannels[i])
+        l.initializeFilter()
+        l.applyFilters()
+        l.applyActivation('relu')
+        out = l.getLayerOutput()
+        layers.append(l)
+    fl = finalLayer(out)
+    fl.forwardPropagation()
+    fl.calculateErrors(targets)
+    fl.finalLayerBackpropagation()
+    layers.append(fl)
+    
+    loss = []
+    accuracy = []
+    out = trainDataset
+    for i in range(0, epochs):
+        for j in layers:
+            if(layers.index(j) == 0):
+                j.applyFilters()
+                j.applyActivation('relu')
+                out = j.getLayerOutput()
+            elif(layers.index(j) == len(layers)-1):
+                fl.updateDataset(out9)
+                fl.forwardPropagation()
+                fl.calculateErrors(targets)
+                fl.finalLayerBackpropagation()
+                loss.append(fl.getLoss())
+                accuracy.append(np.sum(np.round(fl.getHypothesis()) == targets))
+            else:
+                j.updateDataset(out)
+                j.applyFilters()
+                j.applyActivation('relu')
+                out = j.getLayerOutput()
+                
+        for j in layers:
+            if(layers.index(j) == len(layers)-1):
+                gfp = fl.getGradientForPreviousLayer()
+            else:
+                j.applyFilterBackpropagation(gfp)
+                gfp = j.getGradientForPreviousLayer()
+                
+        for j in layers:
+            if(layers.index(j) == len(layers)-1):
+                j.updateWeights(0.01)
+            else:
+                j.applyLearningRateAndUpdate(alpha)
+    
+    return layers, loss, accuracy
+                
+
+#Method for checking accuracy and loss of a particular datset based on given layers and dataset                
+def check_Dataset_loss_Accuracy(layers, dataset, targets):
+    loss = 0
+    accuracy = 0
+    out = dataset
+    for j in layers:
+        if(layers.index(j) == 0):
+            j.applyFilters()
+            j.applyActivation('relu')
+            out = j.getLayerOutput()
+        elif(layers.index(j) == len(layers)-1):
+            fl.updateDataset(out9)
+            fl.forwardPropagation()
+            fl.calculateErrors(targets)
+            loss.append(fl.getLoss())
+            accuracy.append(np.sum(np.round(fl.getHypothesis()) == targets))
+        else:
+            j.updateDataset(out)
+            j.applyFilters()
+            j.applyActivation('relu')
+            out = j.getLayerOutput()         
+            
+        return loss, accuracy
+    
+#End
