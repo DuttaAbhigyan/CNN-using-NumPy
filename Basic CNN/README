@@ -1,0 +1,7 @@
+This is a very basic implementation of CNN using NumPy. It is not optimised and is missing a whole lot of features.
+This is my first try of a CNN upon which I will build better, more modular, and more flexible CNN's. More updates 
+will be incoming. 
+
+The CNN here has only ReLu activation for convolutional layers and sigmoid activation for Fully Connected layers,
+with padding = 0 and strides = 'Valid'. The size of Fully Connected Layers is also fixed with the number of nodes 
+equal to the number of incoming inputs.
